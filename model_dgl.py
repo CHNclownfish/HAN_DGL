@@ -31,6 +31,7 @@ class HeteroClassifier(nn.Module):
         h = g.ndata['nfeature']
 
         h = self.rgcn(g, h)
+        print('this is h',h)
 
         with g.local_scope():
             g.ndata['h'] = h
@@ -38,5 +39,7 @@ class HeteroClassifier(nn.Module):
             hg = 0
             for ntype in g.ntypes:
                 hg = hg + dgl.mean_nodes(g, 'h', ntype=ntype)
-            c = self.classify(hg)
-            return F.softmax(c)
+            print('this is hg',hg.shape)
+            #c = self.classify(hg)
+            #return F.softmax(c)
+            return self.classify(hg)

@@ -76,5 +76,7 @@ class HAN(nn.Module):
     def forward(self, g, h):
         for gnn in self.layers:
             h = gnn(g, h)
+        print('this is h:',h)
+        print('this is h.size',h.shape)
 
         return self.predict(h)

@@ -18,6 +18,7 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import accuracy_score
 from sklearn import metrics
+from model_test import HAN
 
 def create_graph_data(node_feature, edge_feature):
     node_encode, var_encode, node_embedding, var_embedding = graph2vec.embedding_node(node_feature)
@@ -94,12 +95,25 @@ def create_graph_data(node_feature, edge_feature):
     return graph_data, edge_d, node_list, node_feature2dict,edge_feature2dict #edge_d = {edge_type:[[startnode1, endnode1],[startnode2,endnode2]]}
 
 def dgl_graph(graph_data):
+    keys = []
     for key in graph_data.keys():
+        keys.append(key)
+
+    for key in keys:
         u = th.tensor(graph_data[key][0])
         v = th.tensor(graph_data[key][1])
         graph_data[key] = (u,v)
+        s,ed,e = key
+        new_t = (e, ed[1]+ed[0],s)
+        graph_data[new_t] = (v,u)
 
     g = dgl.heterograph(graph_data)
+    # for key in graph_data.keys():
+    #     u = th.tensor(graph_data[key][0])
+    #     v = th.tensor(graph_data[key][1])
+    #     graph_data[key] = (u,v)
+    #
+    # g = dgl.heterograph(graph_data)
 
     return g
 #def featuredDglGraph(g,node_feature2dict,edge_feature2dict):
@@ -217,115 +231,79 @@ def dataloader(feature_data, target_data):
 
     return labels,graphs,cnt
 
-def evaluate(data,m):
-    i = 0
-    j = 0
-    for g,l in data:
-        logit = m(g)
-        predict = torch.max(logit,1)[1]
-        if predict == l:
-            i += 1
-        j += 1
-        acc = i / j
-    return acc
+f1 = 'graph_data.json'
+f2 = 'Reentrancy_AutoExtract_fullnodes.json'
+labels,graphs,cnt= dataloader(f1,f2)
+train_graphs = graphs[:120]
+test_graphs = graphs[120:]
+train_l = labels[:120]
+test_l = labels[120:]
 
+data = np.array([(graphs[i],labels[i]) for i in range(len(graphs))])
+train_data = np.array([(train_graphs[i],train_l[i]) for i in range(len(train_graphs))])
+test_data = np.array([(test_graphs[i],test_l[i]) for i in range(len(test_graphs))])
+X_data = np.array([graphs[i] for i in range(len(graphs))])
+y_data = np.array([labels[j] for j in range(len(labels))])
+
+meta_paths = [['CF', 'FC'],['DF', 'FD'], ['FB', 'BF'], ['FW','WF']]
+model = HAN(meta_paths=meta_paths,
+            in_size=57,
+            hidden_size=32,
+            out_size=2,
+            num_heads=[8],
+            dropout=0.1)
+
+
+loss_fcn = torch.nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.005,
+                             weight_decay=0.001)
+# def evaluate(data,m):
+#     i = 0
+#     j = 0
+#     for g,l in data:
+#         features = g.ndata['nfeature']
+#         logit = m(g,features)
+#
+#         predict = torch.max(logit,1)[1]
+#         print(logit,predict,l)
+#         if predict == l:
+#             i += 1
+#         j += 1
+#         acc = i / j
+#     print(acc)
+#     return acc
 def evaluate2(data,m):
     y_true = []
     y_pred = []
     for g,l in data:
-        logit = m(g)
+        features = g.ndata['nfeature']
+        logit = m(g,features)
         predict = torch.max(logit,1)[1]
         y_pred.append(predict)
         y_true.append(l)
+        print(predict,l)
     acc = accuracy_score(y_true, y_pred)
-    micro = metrics.precision_score(y_true, y_pred, average='micro')
-    macro = metrics.precision_score(y_true, y_pred, average='macro')
-    recall_micro = metrics.recall_score(y_true, y_pred, average='micro')
-    recall_macro = metrics.recall_score(y_true, y_pred, average='macro')
-    f1 = metrics.f1_score(y_true, y_pred, average='weighted')
-    d = {'acc': acc,'micro': micro, 'macro': macro, 'recall_micro': recall_micro, 'recall_macro': recall_macro, 'f1': f1}
-    return d
-
-
-
-f1 = 'graph_data.json'
-f2 = 'Reentrancy_AutoExtract_fullnodes.json'
-labels,graphs,cnt= dataloader(f1,f2)
-data = np.array([(graphs[i],labels[i]) for i in range(len(graphs))])
-
-X_data = np.array([graphs[i] for i in range(len(graphs))])
-y_data = np.array([labels[j] for j in range(len(labels))])
-
+    print(acc)
+    return acc
 kf = KFold(n_splits=5)
-
-
-
-def collate(samples):
-    # graphs, labels = map(list, zip(*samples))
-    graphs, labels = zip(*samples)
-    batched_graph = dgl.batch(graphs)
-    batched_labels = torch.tensor(labels)
-    return batched_graph, batched_labels
-
-dataLoader = DataLoader(
-    data,
-    batch_size=1,
-    collate_fn=collate,
-    drop_last=False,
-    shuffle=True)
-
-
-
-
-etypes = ['FW','CF','DF','FB']
-
-matrix = []
-cnt = 0
-model = HeteroClassifier(57, 20, 2, etypes)
-opt = torch.optim.Adam(model.parameters())
+result = []
 for train_idx, test_idx in kf.split(data):
-
     train_set = data[train_idx]
     test_set = data[test_idx]
-
     for epoch in range(20):
-        for batched_graph, labels in train_set:
-            logits = model(batched_graph)
-            loss = F.cross_entropy(logits, labels)
-            opt.zero_grad()
+        print('this is ',epoch,'epoch')
+        model.train()
+        for g,l in train_set:
+
+            features = g.ndata['nfeature']
+
+            logits = model(g, features)
+            loss = loss_fcn(logits, l)
+
+            optimizer.zero_grad()
             loss.backward()
-            opt.step()
-        print(epoch,loss.item())
-
-    cnt += 1
-    scores = evaluate2(test_set,model)
-    matrix.append(scores)
-    print('this is', cnt, 'time mat:',scores)
-
-acc = []
-micro = []
-macro = []
-recall_micro = []
-recall_macro = []
-f1 = []
-
-for obj in matrix:
-    acc.append(obj['acc'])
-    micro.append(obj['micro'])
-    macro.append(obj['macro'])
-    recall_micro.append(obj['recall_micro'])
-    recall_macro.append(obj['recall_macro'])
-    f1.append(obj['f1'])
-print('acc is:', acc)
-print('micro is:', micro)
-print('macro is:', macro)
-print('recall_micro is:', recall_micro)
-print('recall_macro is:', recall_macro)
-print('f1 is:', f1)
-
-
-
-
-
-
+            optimizer.step()
+    acc = evaluate2(test_data,model)
+    result.append(acc)
+print(result)
 

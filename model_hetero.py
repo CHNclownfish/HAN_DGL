@@ -1,17 +1,10 @@
-"""This model shows an example of using dgl.metapath_reachable_graph on the original heterogeneous
-graph.
-Because the original HAN implementation only gives the preprocessed homogeneous graph, this model
-could not reproduce the result in HAN as they did not provide the preprocessing code, and we
-constructed another dataset from ACM with a different set of papers, connections, features and
-labels.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import dgl
 from dgl.nn.pytorch import GATConv
+import numpy as np
 
 class SemanticAttention(nn.Module):
     def __init__(self, in_size, hidden_size=128):
@@ -59,7 +52,7 @@ class HANLayer(nn.Module):
         for i in range(len(meta_paths)):
             self.gat_layers.append(GATConv(in_size, out_size, layer_num_heads,
                                            dropout, dropout, activation=F.elu,
-                                           allow_zero_in_degree=True))
+                                           allow_zero_in_degree=True))#GAT layer
         self.semantic_attention = SemanticAttention(in_size=out_size * layer_num_heads)
         self.meta_paths = list(tuple(meta_path) for meta_path in meta_paths)
 
@@ -74,32 +67,21 @@ class HANLayer(nn.Module):
             self._cached_coalesced_graph.clear()
             for meta_path in self.meta_paths:
                 self._cached_coalesced_graph[meta_path] = dgl.metapath_reachable_graph(
-                    g, meta_path)
+                    g, meta_path) # return a bipartite graph, every metapath reflect a new_graph
 
         for i, meta_path in enumerate(self.meta_paths):
             new_g = self._cached_coalesced_graph[meta_path]
-            semantic_embeddings.append(self.gat_layers[i](new_g, h).flatten(1))
-        semantic_embeddings = torch.stack(semantic_embeddings, dim=1)                  # (N, M, D * K)
+
+            semantic_embeddings.append(self.gat_layers[0](new_g, h).flatten(1))
+
+        semantic_embeddings = torch.stack(semantic_embeddings, dim=1) # (N, M, D * K)
+
+        # what han layer done is:
+        # 1: convert g into a list of  bipartite graphs by using a list of metapath
+        # 2: using GAT to get a semantic_embedding of every bipartite
+        # 3: concate these semantic_embeddings together for getting final semantic_embedding
 
         return self.semantic_attention(semantic_embeddings)                            # (N, D * K)
-
-# class HAN(nn.Module):
-#     def __init__(self, meta_paths, in_size, hidden_size, out_size, num_heads, dropout):
-#         super(HAN, self).__init__()
-#
-#         self.layers = nn.ModuleList()
-#         self.layers.append(HANLayer(meta_paths, in_size, hidden_size, num_heads[0], dropout))
-#         for l in range(1, len(num_heads)):
-#             self.layers.append(HANLayer(meta_paths, hidden_size * num_heads[l-1],
-#                                         hidden_size, num_heads[l], dropout))
-#         self.predict = nn.Linear(hidden_size * num_heads[-1], out_size)
-#
-#     def forward(self, g, h):
-#         for gnn in self.layers:
-#             h = gnn(g, h)
-
-
-        # return self.predict(h)
 
 class HAN(nn.Module):
     def __init__(self, meta_paths, in_size, hidden_size, out_size, num_heads, dropout):
@@ -112,12 +94,9 @@ class HAN(nn.Module):
                                         hidden_size, num_heads[l], dropout))
         self.predict = nn.Linear(hidden_size * num_heads[-1], out_size)
 
-    def forward(self, g):
-        h = 0
-        for ntype in g.ntypes:
-            h = h + dgl.mean_nodes(g, 'nfeature', ntype=ntype)
+    def forward(self, g, h):
         for gnn in self.layers:
-            h = gnn(g, h)
+            h = gnn(g, h) # this example is one layer of HAN layer, and this h is semantic_embedding
 
 
         return self.predict(h)

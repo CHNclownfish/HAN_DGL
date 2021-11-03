@@ -98,6 +98,7 @@ sampling_configure = {
 def setup(args):
     args.update(default_configure)
     set_random_seed(args['seed'])
+    args['hetero'] = True
     args['dataset'] = 'ACMRaw' if args['hetero'] else 'ACM'
     args['device'] = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     args['log_dir'] = setup_log_dir(args)
@@ -147,6 +148,7 @@ def load_acm(remove_self_loop):
 
     num_nodes = author_g.number_of_nodes()
     train_mask = get_binary_mask(num_nodes, train_idx)
+
     val_mask = get_binary_mask(num_nodes, val_idx)
     test_mask = get_binary_mask(num_nodes, test_idx)
 
@@ -216,6 +218,8 @@ def load_acm_raw(remove_self_loop):
     train_mask = get_binary_mask(num_nodes, train_idx)
     val_mask = get_binary_mask(num_nodes, val_idx)
     test_mask = get_binary_mask(num_nodes, test_idx)
+    print(features.shape)
+
 
     return hg, features, labels, num_classes, train_idx, val_idx, test_idx, \
            train_mask, val_mask, test_mask
