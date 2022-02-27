@@ -91,10 +91,10 @@ class HANLayer(nn.Module):
             new_g = self._cached_coalesced_graph[meta_path[0]]
             s,ed,e = meta_path[0]
             nodetype = s
-                #print(h[nodetype])
+            #print(h[nodetype])
             semantic_embeddings[nodetype].append(self.gat_layers[0](new_g, h[nodetype]).flatten(1))
-                #print(self.gat_layers[i](new_g, h[nodetype]).flatten(1))
-                #print(False)
+            #print(self.gat_layers[i](new_g, h[nodetype]).flatten(1))
+            #print(False)
         for nodetype in semantic_embeddings:
             # if semantic_embeddings[nodetype]  == []:
             #     l = nn.Linear(57,64)
@@ -121,17 +121,15 @@ class HAN(nn.Module):
                                         hidden_size, num_heads[l], dropout))
         self.predict = nn.Linear(hidden_size * num_heads[-1], out_size)
 
-    def forward(self, g, h):
-        h = g.ndata['f']
+    def forward(self, g_set, h):
+        hg = 0
+        for g in g_set:
+            for gnn in self.layers:
+                h = gnn(g, h)
 
-        for gnn in self.layers:
-            h = gnn(g, h)
-
-
-        with g.local_scope():
-            g.ndata['h'] = h
-            hg = 0
-            for ntype in g.ntypes:
-                hg = hg + dgl.max_nodes(g, 'h', ntype=ntype)
+            with g.local_scope():
+                g.ndata['h'] = h
+                for ntype in g.ntypes:
+                    hg = hg + dgl.max_nodes(g, 'h', ntype=ntype)
             #print(hg)
             return self.predict(hg)

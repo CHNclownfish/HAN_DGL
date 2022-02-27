@@ -297,7 +297,7 @@ for train_idx, test_idx in kf.split(data):
 
             features = g.ndata['nfeature']
 
-            logits = model(g, features)
+            logits = model(g,features)
             loss = loss_fcn(logits, l)
 
             optimizer.zero_grad()
